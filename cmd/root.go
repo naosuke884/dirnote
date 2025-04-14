@@ -24,71 +24,119 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
+	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	bolt "go.etcd.io/bbolt"
 )
 
-var cfgFile string
+var configFile string
+var storageDir string
+var log zerolog.Logger
+var db *bolt.DB
 
-// rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:   "dirnote",
-	Short: "A brief description of your application",
-	Long: `A longer description that spans multiple lines and likely contains
-examples and usage of using your application. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
-	// Uncomment the following line if your bare application
-	// has an action associated with it:
-	// Run: func(cmd *cobra.Command, args []string) { },
+	Use:                "dirnote",
+	Short:              "A simple note management CLI application. Notes are managed by directories.",
+	PersistentPreRunE:  persistentPreRunE,
+	PersistentPostRunE: persistentPostRunE,
 }
 
-// Execute adds all child commands to the root command and sets flags appropriately.
-// This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 	err := rootCmd.Execute()
 	if err != nil {
+		log.Error().Err(err).Str("stacktrace", fmt.Sprintf("%+v", err)).Msg("failed to execute the command")
 		os.Exit(1)
 	}
 }
 
 func init() {
-	cobra.OnInitialize(initConfig)
-
-	// Here you will define your flags and configuration settings.
-	// Cobra supports persistent flags, which, if defined here,
-	// will be global for your application.
-
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.dirnote.yaml)")
-
-	// Cobra also supports local flags, which will only run
-	// when this action is called directly.
-	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	cobra.OnInitialize(initLogger, initStorageDir, initConfig)
+	rootCmd.PersistentFlags().StringVar(&configFile, "config", "", "config file (default is $HOME/.dirnote.yaml)")
 }
 
-// initConfig reads in config file and ENV variables if set.
-func initConfig() {
-	if cfgFile != "" {
-		// Use config file from the flag.
-		viper.SetConfigFile(cfgFile)
-	} else {
-		// Find home directory.
-		home, err := os.UserHomeDir()
-		cobra.CheckErr(err)
+func initLogger() {
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 
-		// Search config in home directory with name ".dirnote" (without extension).
-		viper.AddConfigPath(home)
+	log = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).
+		With().
+		Timestamp().
+		Logger()
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+}
+
+func initStorageDir() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to get the home directory")
+	}
+	storageDir = filepath.Join(home, ".dirnote")
+	if _, err := os.Stat(storageDir); os.IsNotExist(err) {
+		err := os.Mkdir(storageDir, 0700)
+		if err != nil {
+			log.Fatal().Err(err).Msg("failed to create the configuration directory")
+		}
+	}
+}
+
+func initConfig() {
+	if configFile != "" {
+		viper.SetConfigFile(configFile)
+	} else {
+		viper.AddConfigPath(storageDir)
 		viper.SetConfigType("yaml")
 		viper.SetConfigName(".dirnote")
 	}
 
-	viper.AutomaticEnv() // read in environment variables that match
+	viper.AutomaticEnv()
 
-	// If a config file is found, read it in.
 	if err := viper.ReadInConfig(); err == nil {
-		fmt.Fprintln(os.Stderr, "Using config file:", viper.ConfigFileUsed())
+		log.Info().Msgf("Using config file: %s", viper.ConfigFileUsed())
 	}
+}
+
+func persistentPreRunE(cmd *cobra.Command, args []string) error {
+	dbMiddleware := &dbMiddleware{}
+	if err := dbMiddleware.PreRunE(cmd, args); err != nil {
+		log.Error().Err(err).Msg("failed to open the database")
+		return err
+
+	}
+	return nil
+}
+
+func persistentPostRunE(cmd *cobra.Command, args []string) error {
+	dbMiddleware := &dbMiddleware{}
+	if err := dbMiddleware.PostRunE(cmd, args); err != nil {
+		log.Error().Err(err).Msg("failed to close the database")
+		return err
+	}
+	return nil
+}
+
+type Middleware interface {
+	PreRunE(cmd *cobra.Command, args []string) error
+	PostRunE(cmd *cobra.Command, args []string) error
+}
+
+type dbMiddleware struct{}
+
+func (m *dbMiddleware) PreRunE(cmd *cobra.Command, args []string) error {
+	var err error
+	db, err = bolt.Open(filepath.Join(storageDir, "dirnote.db"), 0600, nil)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to open the database")
+		return err
+	}
+	return nil
+}
+
+func (m *dbMiddleware) PostRunE(cmd *cobra.Command, args []string) error {
+	if err := db.Close(); err != nil {
+		log.Error().Err(err).Msg("failed to close the database")
+		return err
+	}
+	return nil
 }
