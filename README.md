@@ -11,12 +11,18 @@ A CLI application to manage notes by directory.
 
 ## Installation
 
+### Homebrew (macOS)
+```bash
+brew install naosuke884/dirnote/dirnote
+```
+
+### Manual Installation
 1. Download the latest binary from the [Releases page](https://github.com/naosuke884/dirnote/releases).
-2. Make the downloaded binary executable:
+2. Make the binary executable:
    ```bash
    chmod +x dirnote
    ```
-3. Move the binary to a directory in your PATH:
+3. Move it to a directory in your PATH:
    ```bash
    mv dirnote /usr/local/bin/
    ```
