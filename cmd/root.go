@@ -22,18 +22,23 @@ THE SOFTWARE.
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
+	crerr "github.com/cockroachdb/errors"
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	cockroachdberrors "github.com/yumemi-inc/zerolog-cockroachdb-errors"
 	bolt "go.etcd.io/bbolt"
 )
 
 var configFile string
 var storageDir string
+var isDebug bool
 var log zerolog.Logger
 var db *bolt.DB
 
@@ -42,12 +47,16 @@ var rootCmd = &cobra.Command{
 	Short:              "A simple note management CLI application. Notes are managed by directories.",
 	PersistentPreRunE:  persistentPreRunE,
 	PersistentPostRunE: persistentPostRunE,
+	SilenceErrors:      !isDebug,
+	SilenceUsage:       !isDebug,
 }
 
 func Execute() {
 	err := rootCmd.Execute()
+	if err != nil && isDebug {
+		log.Error().Err(err).Msg("failed to execute the command")
+	}
 	if err != nil {
-		log.Error().Err(err).Str("stacktrace", fmt.Sprintf("%+v", err)).Msg("failed to execute the command")
 		os.Exit(1)
 	}
 }
@@ -55,16 +64,87 @@ func Execute() {
 func init() {
 	cobra.OnInitialize(initLogger, initStorageDir, initConfig)
 	rootCmd.PersistentFlags().StringVar(&configFile, "config", "", "config file (default is $HOME/.dirnote.yaml)")
+	rootCmd.PersistentFlags().BoolVarP(&isDebug, "debug", "d", false, "enable debug mode")
 }
 
 func initLogger() {
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-
-	log = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).
+	zerolog.ErrorStackMarshaler = cockroachdberrors.MarshalStack
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	consoleWriter := getConsoleWriter()
+	log = zerolog.New(consoleWriter).
 		With().
 		Timestamp().
+		Stack().
 		Logger()
-	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+}
+
+func getConsoleWriter() zerolog.ConsoleWriter {
+	const (
+		cFunc  = "\x1b[36m" // シアン：関数名
+		cFile  = "\x1b[33m" // 黄色：ファイル名
+		cLine  = "\x1b[35m" // マゼンタ：行番号
+		cReset = "\x1b[0m"  // リセット
+	)
+	return zerolog.ConsoleWriter{
+		Out:     os.Stderr,
+		NoColor: false,
+		FormatFieldName: func(i interface{}) string {
+			return fmt.Sprintf("%s:", i)
+		},
+		FormatFieldValue: func(v interface{}) string {
+			// JSON 化されたスタックトレースをパース
+			var arr []interface{}
+			switch val := v.(type) {
+			case []byte:
+				if err := json.Unmarshal(val, &arr); err != nil {
+					return string(val)
+				}
+			case []interface{}:
+				arr = val
+			default:
+				return fmt.Sprint(v)
+			}
+
+			var b strings.Builder
+			b.WriteRune('\n') // 先頭に空行
+
+			for _, entry := range arr {
+				m := entry.(map[string]interface{})
+
+				// --- 最初のスタックフレームだけを取り出す ---
+				if traces, ok := m["stacktrace"].([]interface{}); ok && len(traces) > 0 {
+					f := traces[0].(map[string]interface{})
+					b.WriteString("  ")
+					// ファイル:行
+					b.WriteString(cFile)
+					b.WriteString(fmt.Sprintf("%s", f["source"]))
+					b.WriteString(cReset)
+					b.WriteString(":")
+					b.WriteString(cLine)
+					b.WriteString(fmt.Sprintf("%v", f["line"]))
+					b.WriteString(cReset)
+					// 関数名
+					b.WriteString(" ")
+					b.WriteString(cFunc)
+					b.WriteString(fmt.Sprintf("%s()", f["func"]))
+					b.WriteString(cReset)
+					b.WriteRune('\n')
+				}
+
+				// --- そのスタックエントリの details（コメント）だけを出力 ---
+				if details, ok := m["details"].([]interface{}); ok && len(details) > 0 {
+					for _, d := range details {
+						b.WriteString("    ")
+						b.WriteString(fmt.Sprint(d))
+						b.WriteRune('\n')
+					}
+				}
+			}
+
+			return b.String()
+		},
+	}
 }
 
 func initStorageDir() {
@@ -100,9 +180,7 @@ func initConfig() {
 func persistentPreRunE(cmd *cobra.Command, args []string) error {
 	dbMiddleware := &dbMiddleware{}
 	if err := dbMiddleware.PreRunE(cmd, args); err != nil {
-		log.Error().Err(err).Msg("failed to open the database")
-		return err
-
+		return crerr.Wrap(err, "failed to open the database")
 	}
 	return nil
 }
@@ -110,8 +188,7 @@ func persistentPreRunE(cmd *cobra.Command, args []string) error {
 func persistentPostRunE(cmd *cobra.Command, args []string) error {
 	dbMiddleware := &dbMiddleware{}
 	if err := dbMiddleware.PostRunE(cmd, args); err != nil {
-		log.Error().Err(err).Msg("failed to close the database")
-		return err
+		return crerr.Wrap(err, "failed to close the database")
 	}
 	return nil
 }
@@ -127,16 +204,14 @@ func (m *dbMiddleware) PreRunE(cmd *cobra.Command, args []string) error {
 	var err error
 	db, err = bolt.Open(filepath.Join(storageDir, "dirnote.db"), 0600, nil)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to open the database")
-		return err
+		return crerr.Wrap(err, "failed to open the database")
 	}
 	return nil
 }
 
 func (m *dbMiddleware) PostRunE(cmd *cobra.Command, args []string) error {
 	if err := db.Close(); err != nil {
-		log.Error().Err(err).Msg("failed to close the database")
-		return err
+		return crerr.Wrap(err, "failed to close the database")
 	}
 	return nil
 }
