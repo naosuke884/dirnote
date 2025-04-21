@@ -1,0 +1,24 @@
+project_name: dirnote
+builds:
+  - binary: dirnote
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+archives:
+  - format: tar.gz
+  - format: zip
+checksum:
+  name_template: "checksums.txt"
+release:
+  github:
+    owner: naosuke884
+    name: dirnote
+brew:
+  # Homebrew Tap を使うならここで指定
+  repo: naosuke884/dirnote
+  folder: Formula
+  # `brew tap your-user/tap` で使えるように
