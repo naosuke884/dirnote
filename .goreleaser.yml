@@ -13,8 +13,13 @@ builds:
       - arm64
 
 archives:
-  - formats:
+  # tar.gz 用アーカイブ
+  - id: tar
+    formats:
       - tar.gz
+  # zip 用アーカイブ
+  - id: zip
+    formats:
       - zip
 
 checksum:
@@ -31,3 +36,6 @@ brews:
     repository:
       owner: naosuke884
       name: dirnote
+    # Homebrew では tar アーカイブのみ使う
+    ids:
+      - tar
