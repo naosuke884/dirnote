@@ -24,8 +24,11 @@ release:
     owner: naosuke884
     name: dirnote
 
-brew:
-  # Homebrew Tap を使うならここで指定
-  repo: naosuke884/dirnote
-  folder: Formula
-  # `brew tap naosuke884/dirnote` で使えるようになります
+brews:
+  - name: dirnote
+    # リポジトリ内の Formula 配置先ディレクトリ
+    directory: Formula
+    # Homebrew Tap としてコミットする先リポジトリ情報
+    repository:
+      owner: naosuke884
+      name: dirnote
