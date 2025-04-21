@@ -13,8 +13,9 @@ builds:
       - arm64
 
 archives:
-  - format: tar.gz
-  - format: zip
+  - formats:
+      - tar.gz
+      - zip
 
 checksum:
   name_template: "checksums.txt"
@@ -26,9 +27,7 @@ release:
 
 brews:
   - name: dirnote
-    # リポジトリ内の Formula 配置先ディレクトリ
     directory: Formula
-    # Homebrew Tap としてコミットする先リポジトリ情報
     repository:
       owner: naosuke884
       name: dirnote
