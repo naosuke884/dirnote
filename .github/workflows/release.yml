@@ -5,6 +5,10 @@ on:
     tags:
       - 'v*.*.*'
 
+permissions:
+  contents: write   # Release の作成・アセットアップロードに必須
+  packages: write   # Optional: GitHub Packages を使うなら
+
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
