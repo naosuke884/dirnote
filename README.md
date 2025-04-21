@@ -5,7 +5,8 @@ A CLI application to manage notes by directory.
 ## Features
 
 - Save notes for each directory
-- Add, view, and list notes
+- Add, view, edit, delete, and list notes
+- Interactive directory selection for viewing notes
 - Simple and user-friendly CLI interface
 
 ## Installation
@@ -34,6 +35,25 @@ dirnote add "Your note content"
 View the note in the current directory:
 ```bash
 dirnote view
+```
+
+View a note interactively by selecting a directory:
+```bash
+dirnote view --interactive
+```
+
+### Edit a Note
+
+Edit the note in the current directory:
+```bash
+dirnote edit
+```
+
+### Delete a Note
+
+Delete the note in the current directory:
+```bash
+dirnote delete
 ```
 
 ### List All Notes
